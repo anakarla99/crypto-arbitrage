@@ -4,13 +4,14 @@ namespace CryptoArbitrage.Infrastructure.Binance;
 
 public sealed class BinanceDepthUpdate
 {
-    public BinanceDepthUpdate(long firstUpdateId, long finalUpdateId, IReadOnlyList<BookLevel> bids, IReadOnlyList<BookLevel> asks, DateTimeOffset receivedAtUtc, long receivedAtStopwatchTicks)
+    public BinanceDepthUpdate(long firstUpdateId, long finalUpdateId, IReadOnlyList<BookLevel> bids, IReadOnlyList<BookLevel> asks, DateTimeOffset receivedAtUtc, long receivedAtStopwatchTicks, DateTimeOffset? exchangeEventAtUtc = null)
     {
-        if (firstUpdateId < 0 || finalUpdateId < firstUpdateId || receivedAtUtc == default || receivedAtUtc.Offset != TimeSpan.Zero || receivedAtStopwatchTicks < 0)
+        if (firstUpdateId < 0 || finalUpdateId < firstUpdateId || receivedAtUtc == default || receivedAtUtc.Offset != TimeSpan.Zero || receivedAtStopwatchTicks < 0 ||
+            (exchangeEventAtUtc.HasValue && exchangeEventAtUtc.Value.Offset != TimeSpan.Zero))
             throw new ArgumentException("Depth update metadata is invalid.");
-        FirstUpdateId = firstUpdateId; FinalUpdateId = finalUpdateId; Bids = bids ?? throw new ArgumentNullException(nameof(bids)); Asks = asks ?? throw new ArgumentNullException(nameof(asks)); ReceivedAtUtc = receivedAtUtc; ReceivedAtStopwatchTicks = receivedAtStopwatchTicks;
+        FirstUpdateId = firstUpdateId; FinalUpdateId = finalUpdateId; Bids = bids ?? throw new ArgumentNullException(nameof(bids)); Asks = asks ?? throw new ArgumentNullException(nameof(asks)); ReceivedAtUtc = receivedAtUtc; ReceivedAtStopwatchTicks = receivedAtStopwatchTicks; ExchangeEventAtUtc = exchangeEventAtUtc;
     }
-    public long FirstUpdateId { get; } public long FinalUpdateId { get; } public IReadOnlyList<BookLevel> Bids { get; } public IReadOnlyList<BookLevel> Asks { get; } public DateTimeOffset ReceivedAtUtc { get; } public long ReceivedAtStopwatchTicks { get; }
+    public long FirstUpdateId { get; } public long FinalUpdateId { get; } public IReadOnlyList<BookLevel> Bids { get; } public IReadOnlyList<BookLevel> Asks { get; } public DateTimeOffset ReceivedAtUtc { get; } public long ReceivedAtStopwatchTicks { get; } public DateTimeOffset? ExchangeEventAtUtc { get; }
 }
 
 public sealed class BinanceDepthSnapshot
@@ -31,6 +32,10 @@ public sealed class BinanceDepthSynchronizer
     private readonly SortedDictionary<long, long> _asks = new();
     private readonly List<BinanceDepthUpdate> _buffered = [];
     private long? _lastUpdateId;
+    private long _connectionEpoch;
+    private DateTimeOffset? _lastAppliedReceivedAtUtc;
+    private long? _lastAppliedStopwatchTicks;
+    private DateTimeOffset? _sourceEventAtUtc;
     private BookStatus _status = BookStatus.Synchronizing;
     private BookInvalidationReason _reason = BookInvalidationReason.Reconnect;
 
@@ -43,10 +48,21 @@ public sealed class BinanceDepthSynchronizer
 
     public BookStatus Status => _status;
     public BookInvalidationReason InvalidationReason => _reason;
+    public long ConnectionEpoch => _connectionEpoch;
 
     public void BeginSynchronization()
     {
+        BeginSynchronization(_connectionEpoch + 1);
+    }
+
+    public void BeginSynchronization(long connectionEpoch)
+    {
+        if (connectionEpoch <= _connectionEpoch)
+            throw new ArgumentOutOfRangeException(nameof(connectionEpoch), "Connection epoch must increase.");
+
         _bids.Clear(); _asks.Clear(); _buffered.Clear(); _lastUpdateId = null;
+        _lastAppliedReceivedAtUtc = null; _lastAppliedStopwatchTicks = null; _sourceEventAtUtc = null;
+        _connectionEpoch = connectionEpoch;
         _status = BookStatus.Synchronizing; _reason = BookInvalidationReason.Reconnect;
     }
 
@@ -59,6 +75,7 @@ public sealed class BinanceDepthSynchronizer
     public bool ApplySnapshot(BinanceDepthSnapshot snapshot)
     {
         if (_status != BookStatus.Synchronizing) return false;
+        if (_connectionEpoch == 0) _connectionEpoch = 1;
         var pending = _buffered.Where(update => update.FinalUpdateId > snapshot.LastUpdateId).ToArray();
         if (pending.Length == 0 || pending[0].FirstUpdateId > snapshot.LastUpdateId + 1 || pending[0].FinalUpdateId < snapshot.LastUpdateId + 1)
         {
@@ -68,14 +85,20 @@ public sealed class BinanceDepthSynchronizer
         _bids.Clear(); _asks.Clear();
         ApplyLevels(_bids, snapshot.Bids); ApplyLevels(_asks, snapshot.Asks);
         _lastUpdateId = snapshot.LastUpdateId;
-        ApplyLevels(_bids, pending[0].Bids); ApplyLevels(_asks, pending[0].Asks); _lastUpdateId = pending[0].FinalUpdateId;
+        ApplyUpdate(pending[0]);
         foreach (var update in pending.Skip(1))
         {
             if (!ApplySequenced(update)) return false;
         }
 
-        _buffered.Clear(); _status = BookStatus.Valid; _reason = BookInvalidationReason.None;
-        return HasValidBbo();
+        _buffered.Clear();
+        if (!HasValidBbo())
+        {
+            Invalidate(BookInvalidationReason.SnapshotMismatch); return false;
+        }
+
+        _status = BookStatus.Valid; _reason = BookInvalidationReason.None;
+        return true;
     }
 
     public bool ApplyLive(BinanceDepthUpdate update)
@@ -89,6 +112,16 @@ public sealed class BinanceDepthSynchronizer
         _status == BookStatus.Valid ? Best(_bids, true) : null,
         _status == BookStatus.Valid ? Best(_asks, false) : null);
 
+    public SynchronizedBookSnapshot ExportSnapshot() => new(
+        Exchange.BinanceSpot, _instrument, _status, _reason, _connectionEpoch,
+        _status == BookStatus.Valid ? _lastAppliedReceivedAtUtc : null,
+        _status == BookStatus.Valid ? _lastAppliedStopwatchTicks : null,
+        _status == BookStatus.Valid ? _sourceEventAtUtc : null,
+        _status == BookStatus.Valid ? _lastUpdateId : null,
+        _retainedDepth,
+        _status == BookStatus.Valid ? Levels(_bids, bid: true) : [],
+        _status == BookStatus.Valid ? Levels(_asks, bid: false) : []);
+
     private bool ApplySequenced(BinanceDepthUpdate update)
     {
         if (update.FinalUpdateId <= _lastUpdateId) return true;
@@ -97,7 +130,7 @@ public sealed class BinanceDepthSynchronizer
             Invalidate(BookInvalidationReason.SequenceGap); return false;
         }
 
-        ApplyLevels(_bids, update.Bids); ApplyLevels(_asks, update.Asks); _lastUpdateId = update.FinalUpdateId;
+        ApplyUpdate(update);
         if (!HasValidBbo()) { Invalidate(BookInvalidationReason.SnapshotMismatch); return false; }
         return true;
     }
@@ -107,6 +140,20 @@ public sealed class BinanceDepthSynchronizer
         foreach (var level in levels) { if (level.Quantity.Units == 0) side.Remove(level.Price.Units); else side[level.Price.Units] = level.Quantity.Units; }
     }
 
+    private void ApplyUpdate(BinanceDepthUpdate update)
+    {
+        ApplyLevels(_bids, update.Bids); ApplyLevels(_asks, update.Asks);
+        _lastUpdateId = update.FinalUpdateId;
+        _lastAppliedReceivedAtUtc = update.ReceivedAtUtc;
+        _lastAppliedStopwatchTicks = update.ReceivedAtStopwatchTicks;
+        _sourceEventAtUtc = update.ExchangeEventAtUtc;
+    }
+
+    private IReadOnlyList<BookLevel> Levels(SortedDictionary<long, long> side, bool bid) =>
+        (bid ? side.Reverse() : side).Take(_retainedDepth)
+            .Select(pair => new BookLevel(new FixedPoint(pair.Key), new FixedPoint(pair.Value)))
+            .ToArray();
+
     private bool HasValidBbo() => _bids.Count > 0 && _asks.Count > 0 && _bids.Last().Key < _asks.First().Key;
     private static BookLevel? Best(SortedDictionary<long, long> side, bool bid)
     {
@@ -114,5 +161,9 @@ public sealed class BinanceDepthSynchronizer
         var pair = bid ? side.Last() : side.First();
         return new BookLevel(new FixedPoint(pair.Key), new FixedPoint(pair.Value));
     }
-    private void Invalidate(BookInvalidationReason reason) { _status = BookStatus.Invalid; _reason = reason; _bids.Clear(); _asks.Clear(); _buffered.Clear(); _lastUpdateId = null; }
+    private void Invalidate(BookInvalidationReason reason)
+    {
+        _status = BookStatus.Invalid; _reason = reason; _bids.Clear(); _asks.Clear(); _buffered.Clear(); _lastUpdateId = null;
+        _lastAppliedReceivedAtUtc = null; _lastAppliedStopwatchTicks = null; _sourceEventAtUtc = null;
+    }
 }

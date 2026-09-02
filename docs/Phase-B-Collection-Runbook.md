@@ -36,4 +36,6 @@
 
 ## Current implementation gaps
 
-Before running this collector, the backend must add full retained-depth export with last-applied receipt timestamp and connection epoch, the Coinbase adapter, durable Parquet writers, and a replay validator. The current `BookView` exposes only BBO, which is insufficient to reproduce 100-USDT VWAP features or labels.
+The Binance synchronizer now exports an immutable, ordered retained-depth snapshot with the last applied receipt timestamp, sequence, and connection epoch. This is the capture input; `BookView` remains the smaller BBO-only eligibility view.
+
+Before running this collector, the backend still needs the Coinbase adapter, durable Parquet writers, a capture coordinator/sampler, and an offline replay validator.
