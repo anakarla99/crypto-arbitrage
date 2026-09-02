@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/CryptoArbitrage.Domain/CryptoArbitrage.Domain.csproj" />
+    <Project Path="src/CryptoArbitrage.Infrastructure/CryptoArbitrage.Infrastructure.csproj" />
+    <Project Path="src/CryptoArbitrage.Service/CryptoArbitrage.Service.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/CryptoArbitrage.Domain.Tests/CryptoArbitrage.Domain.Tests.csproj" />
+    <Project Path="tests/CryptoArbitrage.Infrastructure.Tests/CryptoArbitrage.Infrastructure.Tests.csproj" />
+  </Folder>
+</Solution>

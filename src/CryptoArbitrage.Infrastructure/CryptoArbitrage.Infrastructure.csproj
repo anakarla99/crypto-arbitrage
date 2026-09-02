@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="..\CryptoArbitrage.Domain\CryptoArbitrage.Domain.csproj" />
+  </ItemGroup>
+</Project>
