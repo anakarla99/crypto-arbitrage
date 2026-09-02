@@ -2,6 +2,8 @@
 
 Phase 2 backend scaffold for public market data and paper-trading preparation.
 
+The project is now being reframed as an Industrial ML product. Its course-aligned plan is in [Industrial-ML-Roadmap.md](docs/Industrial-ML-Roadmap.md).
+
 ## Current increment
 
 The service binds and validates the single initial market (`BTC-USDT`) and exposes liveness/readiness endpoints. It does not connect to exchanges, persist data, calculate spreads, or execute orders.
