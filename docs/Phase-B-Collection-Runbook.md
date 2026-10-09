@@ -36,6 +36,6 @@
 
 ## Current implementation gaps
 
-The Binance depth parser and synchronizer now validate and apply Binance depth updates, including fixed-point precision, update ranges, zero-quantity deletions, snapshot bridging, sequence continuity, and immutable retained-depth export. The Coinbase Level 2 parser now normalizes snapshot/update messages into the same transport-neutral `BookDelta` contract and enforces the configured product and fixed-point precision. These are the capture inputs; `BookView` remains the smaller BBO-only eligibility view.
+The Binance depth parser and synchronizer now validate and apply Binance depth updates, including fixed-point precision, update ranges, zero-quantity deletions, snapshot bridging, sequence continuity, and immutable retained-depth export. The Coinbase Level 2 parser and synchronizer now validate sequence-numbered snapshot/update messages, apply level changes, invalidate on gaps, clear state on reconnect, and export the same immutable retained-depth snapshot shape. These are the capture inputs; `BookView` remains the smaller BBO-only eligibility view.
 
-Before running this collector, the backend still needs the Coinbase connection adapter and synchronizer, Binance/Coinbase stream wiring, durable Parquet writers, a capture coordinator/sampler, and an offline replay validator.
+Before running this collector, the backend still needs the Coinbase connection adapter, Binance/Coinbase stream wiring, durable Parquet writers, a capture coordinator/sampler, and an offline replay validator.

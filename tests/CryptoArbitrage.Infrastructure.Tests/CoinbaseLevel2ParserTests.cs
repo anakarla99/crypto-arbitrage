@@ -16,6 +16,7 @@ public sealed class CoinbaseLevel2ParserTests
         var deltas = parser.Parse(Encoding.UTF8.GetBytes("""
             {
               "channel": "l2_data",
+              "sequence_num": 10,
               "events": [{
                 "type": "snapshot",
                 "product_id": "BTC-USDT",
@@ -46,6 +47,7 @@ public sealed class CoinbaseLevel2ParserTests
         var deltas = parser.Parse(Encoding.UTF8.GetBytes("""
             {
               "channel": "l2_data",
+              "sequence_num": 11,
               "events": [{
                 "type": "update",
                 "product_id": "BTC-USDT",
@@ -66,8 +68,8 @@ public sealed class CoinbaseLevel2ParserTests
     public void RejectsUnexpectedProductOrUnalignedPrice()
     {
         var parser = CreateParser();
-        var wrongProduct = """{"channel":"l2_data","events":[{"type":"update","product_id":"BTC-USD","event_time":"2026-10-09T15:00:00Z","updates":[]}]}""";
-        var unalignedPrice = """{"channel":"l2_data","events":[{"type":"update","product_id":"BTC-USDT","event_time":"2026-10-09T15:00:00Z","updates":[{"side":"bid","price_level":"65000.001","new_quantity":"0.01"}]}]}""";
+        var wrongProduct = """{"channel":"l2_data","sequence_num":10,"events":[{"type":"update","product_id":"BTC-USD","event_time":"2026-10-09T15:00:00Z","updates":[]}]}""";
+        var unalignedPrice = """{"channel":"l2_data","sequence_num":10,"events":[{"type":"update","product_id":"BTC-USDT","event_time":"2026-10-09T15:00:00Z","updates":[{"side":"bid","price_level":"65000.001","new_quantity":"0.01"}]}]}""";
 
         Assert.Throws<FormatException>(() => parser.Parse(Encoding.UTF8.GetBytes(wrongProduct), DateTimeOffset.UtcNow, 1));
         Assert.Throws<ArgumentException>(() => parser.Parse(Encoding.UTF8.GetBytes(unalignedPrice), DateTimeOffset.UtcNow, 1));

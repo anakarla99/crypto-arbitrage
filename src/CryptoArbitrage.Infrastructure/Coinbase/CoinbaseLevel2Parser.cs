@@ -26,6 +26,25 @@ public sealed class CoinbaseLevel2Parser
         DateTimeOffset receivedAtUtc,
         long receivedAtStopwatchTicks)
     {
+        return ParseUpdates(payload, receivedAtUtc, receivedAtStopwatchTicks)
+            .Select(update => new BookDelta(
+                Exchange.CoinbaseAdvancedTrade,
+                _instrument,
+                update.ReceivedAtUtc,
+                update.ReceivedAtStopwatchTicks,
+                update.ExchangeEventTimeUtc,
+                new BookSequenceRange(update.SequenceNumber, update.SequenceNumber),
+                update.Kind,
+                update.Bids,
+                update.Asks))
+            .ToArray();
+    }
+
+    public IReadOnlyList<CoinbaseLevel2Update> ParseUpdates(
+        ReadOnlyMemory<byte> payload,
+        DateTimeOffset receivedAtUtc,
+        long receivedAtStopwatchTicks)
+    {
         if (receivedAtUtc == default || receivedAtUtc.Offset != TimeSpan.Zero || receivedAtStopwatchTicks < 0)
         {
             throw new ArgumentException("Receipt timestamps must be UTC and monotonic ticks non-negative.");
@@ -44,7 +63,8 @@ public sealed class CoinbaseLevel2Parser
             throw new FormatException("Coinbase l2_data payload must contain an events array.");
         }
 
-        var deltas = new List<BookDelta>();
+        var sequenceNumber = RequiredInt64(root, "sequence_num");
+        var updatesResult = new List<CoinbaseLevel2Update>();
         foreach (var @event in events.EnumerateArray())
         {
             var type = RequiredString(@event, "type");
@@ -88,19 +108,32 @@ public sealed class CoinbaseLevel2Parser
                 _ => throw new FormatException($"Unexpected Coinbase l2_data event type '{type}'.")
             };
 
-            deltas.Add(new BookDelta(
+            updatesResult.Add(new CoinbaseLevel2Update(
                 Exchange.CoinbaseAdvancedTrade,
                 _instrument,
                 receivedAtUtc,
                 receivedAtStopwatchTicks,
                 eventTime,
-                sequence: null,
+                sequenceNumber,
                 kind,
                 bids,
                 asks));
         }
 
-        return deltas;
+        return updatesResult;
+    }
+
+    private static long RequiredInt64(JsonElement element, string propertyName)
+    {
+        if (!element.TryGetProperty(propertyName, out var property) ||
+            property.ValueKind != JsonValueKind.Number ||
+            !property.TryGetInt64(out var value) ||
+            value < 0)
+        {
+            throw new FormatException($"Coinbase payload requires non-negative integer '{propertyName}'.");
+        }
+
+        return value;
     }
 
     private static string RequiredString(JsonElement element, string propertyName)
