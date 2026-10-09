@@ -36,6 +36,6 @@
 
 ## Current implementation gaps
 
-The Binance synchronizer now exports an immutable, ordered retained-depth snapshot with the last applied receipt timestamp, sequence, and connection epoch. This is the capture input; `BookView` remains the smaller BBO-only eligibility view.
+The Binance synchronizer now exports an immutable, ordered retained-depth snapshot with the last applied receipt timestamp, sequence, and connection epoch. The Coinbase Level 2 parser now normalizes snapshot/update messages into the same transport-neutral `BookDelta` contract and enforces the configured product and fixed-point precision. These are the capture inputs; `BookView` remains the smaller BBO-only eligibility view.
 
-Before running this collector, the backend still needs the Coinbase adapter, durable Parquet writers, a capture coordinator/sampler, and an offline replay validator.
+Before running this collector, the backend still needs the Coinbase connection adapter, Binance/Coinbase stream wiring, durable Parquet writers, a capture coordinator/sampler, and an offline replay validator.
