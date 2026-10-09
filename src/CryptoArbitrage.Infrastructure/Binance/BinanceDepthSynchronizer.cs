@@ -49,6 +49,7 @@ public sealed class BinanceDepthSynchronizer
     public BookStatus Status => _status;
     public BookInvalidationReason InvalidationReason => _reason;
     public long ConnectionEpoch => _connectionEpoch;
+    public int BufferedUpdateCount => _buffered.Count;
 
     public void BeginSynchronization()
     {

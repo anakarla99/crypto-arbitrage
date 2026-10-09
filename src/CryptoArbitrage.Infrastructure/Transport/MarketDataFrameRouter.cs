@@ -4,7 +4,7 @@ using CryptoArbitrage.Infrastructure.Coinbase;
 
 namespace CryptoArbitrage.Infrastructure.Transport;
 
-public enum QualityEventType { ParseRejection, SequenceGap, SnapshotMismatch }
+public enum QualityEventType { ParseRejection, SequenceGap, SnapshotMismatch, ConnectionStateChanged }
 
 public readonly record struct MarketDataQualityEvent(
     Exchange Exchange,

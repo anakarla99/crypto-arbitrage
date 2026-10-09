@@ -97,3 +97,61 @@ public sealed class MarketDataOrchestrator
                 details),
             cancellationToken);
 }
+
+public sealed class MarketDataConnectionStateSink : IConnectionStateSink
+{
+    private readonly IMarketDataQualitySink _qualitySink;
+    private readonly Action<Exchange, long> _epochStarted;
+    private readonly Dictionary<Exchange, long> _epochs = [];
+
+    public MarketDataConnectionStateSink(
+        IMarketDataQualitySink qualitySink,
+        Action<Exchange, long> epochStarted)
+    {
+        _qualitySink = qualitySink ?? throw new ArgumentNullException(nameof(qualitySink));
+        _epochStarted = epochStarted ?? throw new ArgumentNullException(nameof(epochStarted));
+    }
+
+    public async ValueTask PublishAsync(ConnectionStateChanged change, CancellationToken cancellationToken)
+    {
+        if (change.Current == ConnectionState.Connecting)
+        {
+            var epoch = _epochs.TryGetValue(change.Exchange, out var previous) ? previous + 1 : 1;
+            _epochs[change.Exchange] = epoch;
+            _epochStarted(change.Exchange, epoch);
+        }
+
+        await _qualitySink.PublishAsync(
+            new MarketDataQualityEvent(
+                change.Exchange,
+                new CanonicalInstrumentId("BTC", "USDT"),
+                QualityEventType.ConnectionStateChanged,
+                change.AtUtc,
+                _epochs.TryGetValue(change.Exchange, out var epochValue) ? epochValue : 0,
+                null,
+                0,
+                $"{change.Previous}->{change.Current}:{change.Reason}:failures={change.ConsecutiveFailures}"),
+            cancellationToken).ConfigureAwait(false);
+    }
+}
+
+public sealed class MarketDataStreamCoordinator
+{
+    private readonly Func<CancellationToken, Task> _binanceLifecycle;
+    private readonly Func<CancellationToken, Task> _coinbaseLifecycle;
+
+    public MarketDataStreamCoordinator(
+        Func<CancellationToken, Task> binanceLifecycle,
+        Func<CancellationToken, Task> coinbaseLifecycle)
+    {
+        _binanceLifecycle = binanceLifecycle ?? throw new ArgumentNullException(nameof(binanceLifecycle));
+        _coinbaseLifecycle = coinbaseLifecycle ?? throw new ArgumentNullException(nameof(coinbaseLifecycle));
+    }
+
+    public async Task RunAsync(CancellationToken stoppingToken)
+    {
+        var binanceTask = _binanceLifecycle(stoppingToken);
+        var coinbaseTask = _coinbaseLifecycle(stoppingToken);
+        await Task.WhenAll(binanceTask, coinbaseTask).ConfigureAwait(false);
+    }
+}
